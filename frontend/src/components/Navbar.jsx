@@ -80,14 +80,7 @@ export default function Navbar() {
   };
 
   return (
-    <header className="navbar-container" style={{
-      position: 'sticky',
-      top: 0,
-      zIndex: 100,
-      backdropFilter: 'blur(12px)',
-      borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-      backgroundColor: 'rgba(10, 10, 12, 0.7)'
-    }}>
+    <header className="navbar-container">
       <div style={{
         maxWidth: '1200px',
         margin: '0 auto',
@@ -293,13 +286,13 @@ export default function Navbar() {
               )}
 
               {/* User Dropdown / Profile */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '14px' }}>
                 <Link to="/profile" style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}>
                   <div style={{
                     width: '30px',
                     height: '30px',
                     borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.05)',
+                    background: 'var(--bg-input)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -307,7 +300,7 @@ export default function Navbar() {
                     fontWeight: 'bold',
                     fontSize: '13px',
                     overflow: 'hidden',
-                    border: '1px solid rgba(255,255,255,0.1)'
+                    border: '1px solid var(--border-color)'
                   }}>
                     {user.avatar ? (
                       <img src={user.avatar} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
