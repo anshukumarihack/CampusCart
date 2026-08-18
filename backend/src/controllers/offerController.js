@@ -8,7 +8,18 @@ const Transaction = require('../models/Transaction');
 // @route   POST /api/offers
 // @access  Private
 exports.createOffer = async (req, res) => {
-  const { listingId, amount, message } = req.body;
+  const { 
+    listingId, 
+    amount, 
+    message,
+    offerType,
+    rentalStartDate,
+    rentalEndDate,
+    rentalDuration,
+    rentalAmount,
+    securityDeposit,
+    totalAmount
+  } = req.body;
 
   if (!listingId || !amount) {
     return res.status(400).json({ message: 'Listing ID and offer amount are required' });
@@ -25,6 +36,42 @@ exports.createOffer = async (req, res) => {
       return res.status(400).json({ message: 'You cannot make an offer on your own listing' });
     }
 
+    if (offerType === 'Rental') {
+      if (!rentalStartDate || !rentalEndDate || !rentalDuration || !rentalAmount) {
+        return res.status(400).json({ message: 'All rental offer details are required' });
+      }
+
+      const start = new Date(rentalStartDate);
+      const end = new Date(rentalEndDate);
+
+      if (start < new Date().setHours(0, 0, 0, 0)) {
+        return res.status(400).json({ message: 'Rental start date cannot be in the past' });
+      }
+      if (start >= end) {
+        return res.status(400).json({ message: 'Rental start date must be before end date' });
+      }
+
+      if (listing.minimumRentalDuration && rentalDuration < listing.minimumRentalDuration) {
+        return res.status(400).json({ message: `Minimum rental duration is ${listing.minimumRentalDuration} days` });
+      }
+      if (listing.maximumRentalDuration && rentalDuration > listing.maximumRentalDuration) {
+        return res.status(400).json({ message: `Maximum rental duration is ${listing.maximumRentalDuration} days` });
+      }
+
+      // Check overlapping bookings
+      const overlappingTransaction = await Transaction.findOne({
+        listing: listingId,
+        transactionType: 'Rental',
+        rentalStatus: { $nin: ['Cancelled', 'Pending'] },
+        rentalStartDate: { $lte: end },
+        rentalEndDate: { $gte: start }
+      });
+
+      if (overlappingTransaction) {
+        return res.status(400).json({ message: 'The item is already booked for these dates.' });
+      }
+    }
+
     // Create the Offer document
     const offer = new Offer({
       listing: listingId,
@@ -33,6 +80,13 @@ exports.createOffer = async (req, res) => {
       amount: parseFloat(amount),
       message: message || '',
       status: 'Pending',
+      offerType: offerType || 'Sale',
+      rentalStartDate: rentalStartDate ? new Date(rentalStartDate) : null,
+      rentalEndDate: rentalEndDate ? new Date(rentalEndDate) : null,
+      rentalDuration: rentalDuration ? parseInt(rentalDuration) : null,
+      rentalAmount: rentalAmount ? parseFloat(rentalAmount) : null,
+      securityDeposit: securityDeposit ? parseFloat(securityDeposit) : null,
+      totalAmount: totalAmount ? parseFloat(totalAmount) : null,
     });
 
     const savedOffer = await offer.save();
@@ -52,10 +106,16 @@ exports.createOffer = async (req, res) => {
         seller: listing.owner,
         offer: savedOffer._id,
         status: 'Offer Made',
+        transactionType: offerType || 'Sale',
+        rentalStatus: offerType === 'Rental' ? 'Pending' : undefined,
       });
     } else {
       transaction.status = 'Offer Made';
       transaction.offer = savedOffer._id;
+      transaction.transactionType = offerType || 'Sale';
+      if (offerType === 'Rental') {
+        transaction.rentalStatus = 'Pending';
+      }
     }
     await transaction.save();
 
@@ -154,6 +214,21 @@ exports.respondToOffer = async (req, res) => {
     const io = req.app.get('io');
 
     if (status === 'Accepted') {
+      if (offer.offerType === 'Rental') {
+        const start = offer.rentalStartDate;
+        const end = offer.rentalEndDate;
+        const overlappingTransaction = await Transaction.findOne({
+          listing: listing._id,
+          transactionType: 'Rental',
+          rentalStatus: { $nin: ['Cancelled', 'Pending'] },
+          rentalStartDate: { $lte: end },
+          rentalEndDate: { $gte: start }
+        });
+        if (overlappingTransaction) {
+          return res.status(400).json({ message: 'The item is already booked for these dates.' });
+        }
+      }
+
       offer.status = 'Accepted';
       listing.status = 'Accepted';
       await listing.save();
@@ -167,19 +242,34 @@ exports.respondToOffer = async (req, res) => {
           seller: offer.seller,
           offer: offer._id,
           status: 'Accepted',
+          transactionType: offer.offerType || 'Sale',
         });
       } else {
         transaction.status = 'Accepted';
         transaction.offer = offer._id;
+        transaction.transactionType = offer.offerType || 'Sale';
       }
+
+      if (offer.offerType === 'Rental') {
+        transaction.rentalStartDate = offer.rentalStartDate;
+        transaction.rentalEndDate = offer.rentalEndDate;
+        transaction.rentalDuration = offer.rentalDuration;
+        transaction.rentalAmount = offer.amount;
+        transaction.securityDeposit = offer.securityDeposit;
+        transaction.securityDepositStatus = 'Pending';
+        transaction.rentalStatus = 'Pending';
+      }
+
       await transaction.save();
 
       // System notification for buyer
       const notification = new Notification({
         user: offer.buyer,
         type: 'transaction',
-        title: 'Offer Accepted!',
-        content: `Your offer of $${offer.amount.toFixed(2)} on "${listing.title}" was accepted! You can now proceed to pay online.`,
+        title: offer.offerType === 'Rental' ? 'Rental Request Accepted!' : 'Offer Accepted!',
+        content: offer.offerType === 'Rental'
+          ? `Your rental request of $${offer.amount.toFixed(2)} on "${listing.title}" was accepted! You can now proceed to pay online.`
+          : `Your offer of $${offer.amount.toFixed(2)} on "${listing.title}" was accepted! You can now proceed to pay online.`,
         link: `/chat?listingId=${listing._id}&buyerId=${offer.buyer}`,
       });
       await notification.save();
@@ -187,7 +277,9 @@ exports.respondToOffer = async (req, res) => {
       if (room) {
         room.messages.push({
           sender: req.user.id,
-          text: `🎉 Offer ACCEPTED for $${offer.amount.toFixed(2)}! Buyer can now proceed with online checkouts.`,
+          text: offer.offerType === 'Rental'
+            ? `🎉 Rental request ACCEPTED for $${offer.amount.toFixed(2)} (${offer.rentalDuration} days)! Renter can now proceed with payment.`
+            : `🎉 Offer ACCEPTED for $${offer.amount.toFixed(2)}! Buyer can now proceed with online checkouts.`,
           timestamp: new Date(),
         });
         room.lastUpdated = new Date();

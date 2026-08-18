@@ -13,13 +13,13 @@ const ListingSchema = new mongoose.Schema({
   },
   price: {
     type: Number,
-    required: true,
+    required: function() { return this.listingType !== 'Rent'; },
     min: 0,
   },
   category: {
     type: String,
     required: true,
-    enum: ['Textbooks', 'Electronics', 'Calculators', 'Furniture', 'Bicycles', 'Clothing', 'Hostel Essentials', 'Other'],
+    enum: ['Stationery', 'Electronics', 'Calculators', 'Furniture', 'Vehicles', 'Clothing', 'Hostel Essentials', 'Other'],
   },
   condition: {
     type: String,
@@ -38,6 +38,52 @@ const ListingSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
+  },
+  listingType: {
+    type: String,
+    enum: ['Sale', 'Rent', 'Both'],
+    default: 'Sale',
+  },
+  rentalPrice: {
+    type: Number,
+    default: null,
+  },
+  rentalPriceUnit: {
+    type: String,
+    enum: ['hour', 'day', 'week', 'month'],
+    default: null,
+  },
+  securityDeposit: {
+    type: Number,
+    default: 0,
+  },
+  minimumRentalDuration: {
+    type: Number,
+    default: null,
+  },
+  maximumRentalDuration: {
+    type: Number,
+    default: null,
+  },
+  availableFrom: {
+    type: Date,
+    default: null,
+  },
+  availableUntil: {
+    type: Date,
+    default: null,
+  },
+  isAvailableForRent: {
+    type: Boolean,
+    default: true,
+  },
+  isAvailableForSale: {
+    type: Boolean,
+    default: true,
+  },
+  rentalTerms: {
+    type: String,
+    default: '',
   },
   createdAt: {
     type: Date,

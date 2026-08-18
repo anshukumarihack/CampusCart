@@ -12,15 +12,16 @@ import {
   Shirt, 
   Home as HomeIcon, 
   Sparkles,
-  Star
+  Star,
+  Pencil
 } from 'lucide-react';
 
 const CATEGORY_ICONS = {
-  'Textbooks': <BookOpen size={16} />,
+  'Stationery': <Pencil size={16} />,
   'Electronics': <Laptop size={16} />,
   'Calculators': <Cpu size={16} />,
   'Furniture': <Armchair size={16} />,
-  'Bicycles': <Bike size={16} />,
+  'Vehicles': <Bike size={16} />,
   'Clothing': <Shirt size={16} />,
   'Hostel Essentials': <HomeIcon size={16} />,
   'Other': <Sparkles size={16} />
@@ -42,6 +43,7 @@ export default function Home() {
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [sortBy, setSortBy] = useState('newest');
+  const [modeFilter, setModeFilter] = useState('All'); // 'All', 'Buy', 'Rent'
   
   const [showFilters, setShowFilters] = useState(false);
 
@@ -56,6 +58,8 @@ export default function Home() {
       if (minPrice) params.append('minPrice', minPrice);
       if (maxPrice) params.append('maxPrice', maxPrice);
       if (sortBy) params.append('sortBy', sortBy);
+      if (modeFilter === 'Buy') params.append('listingType', 'Sale');
+      if (modeFilter === 'Rent') params.append('listingType', 'Rent');
 
       const response = await fetch(`http://127.0.0.1:5050/api/listings?${params.toString()}`);
       const data = await response.json();
@@ -80,7 +84,7 @@ export default function Home() {
     }, 300); // 300ms debounce for text search input
 
     return () => clearTimeout(delayDebounceFn);
-  }, [search, selectedCategory, selectedCondition, minPrice, maxPrice, sortBy]);
+  }, [search, selectedCategory, selectedCondition, minPrice, maxPrice, sortBy, modeFilter]);
 
   const clearFilters = () => {
     setSearch('');
@@ -89,6 +93,7 @@ export default function Home() {
     setMinPrice('');
     setMaxPrice('');
     setSortBy('newest');
+    setModeFilter('All');
   };
 
   return (
@@ -105,7 +110,7 @@ export default function Home() {
           Campus peer-to-peer <span style={{ color: 'var(--primary)' }}>negotiable marketplace</span>
         </h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '15px', maxWidth: '650px', margin: '0 auto 24px auto', lineHeight: '1.6' }}>
-          Exclusively for verified students. Buy used textbooks, calculators, furniture, or hostel essentials directly from fellow students. Secure online card payments & price negotiations.
+          Exclusively for verified students. Buy used stationery, calculators, furniture, or hostel essentials directly from fellow students. Secure online card payments & price negotiations.
         </p>
 
         {/* Big Search Bar */}
@@ -122,7 +127,7 @@ export default function Home() {
             <input
               type="text"
               className="input-field"
-              placeholder="Search listings by textbooks, bicycles, calculators..."
+              placeholder="Search listings by stationery, vehicles, calculators..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               style={{ paddingLeft: '48px', height: '48px' }}
@@ -137,6 +142,29 @@ export default function Home() {
             <span>Filters</span>
           </button>
         </div>
+      </div>
+
+      {/* Marketplace Mode Tabs */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+        {['All', 'Buy', 'Rent'].map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setModeFilter(tab)}
+            style={{
+              padding: '10px 24px',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              background: modeFilter === tab ? 'var(--primary-gradient)' : 'transparent',
+              color: modeFilter === tab ? '#ffffff' : 'var(--text-secondary)',
+              fontWeight: 600,
+              fontSize: '15px',
+              cursor: 'pointer',
+              transition: 'var(--transition)'
+            }}
+          >
+            {tab === 'All' ? '🌐 All Listings' : tab === 'Buy' ? '🛒 Buy Items' : '🏠 Rental Deals'}
+          </button>
+        ))}
       </div>
 
       {/* Category Horizontal Scrolling Tags */}
@@ -393,6 +421,22 @@ export default function Home() {
                   </span>
                 </div>
 
+                {/* Mode Badge */}
+                <div style={{ position: 'absolute', top: '12px', right: '12px', zIndex: 1 }}>
+                  <span style={{ 
+                    backdropFilter: 'blur(8px)',
+                    background: item.listingType === 'Rent' ? 'rgba(16, 185, 129, 0.15)' : item.listingType === 'Both' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                    color: item.listingType === 'Rent' ? 'var(--success)' : item.listingType === 'Both' ? 'var(--warning)' : 'var(--primary)',
+                    border: '1px solid currentColor',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '4px 8px',
+                    borderRadius: '4px'
+                  }}>
+                    {item.listingType === 'Rent' ? '🏠 RENT' : item.listingType === 'Both' ? '🔄 SALE + RENT' : '🛒 SALE'}
+                  </span>
+                </div>
+
                 {/* Price Tag */}
                 <div style={{ position: 'absolute', bottom: '12px', right: '12px', zIndex: 1 }}>
                   <span style={{ 
@@ -401,11 +445,16 @@ export default function Home() {
                     fontWeight: 'bold',
                     padding: '6px 12px',
                     borderRadius: '8px',
-                    fontSize: '15px',
+                    fontSize: '13px',
                     boxShadow: 'var(--card-shadow)',
-                    border: '1px solid var(--border-color)'
+                    border: '1px solid var(--border-color)',
+                    whiteSpace: 'nowrap'
                   }}>
-                    {item.price === 0 ? 'Free' : `$${item.price.toFixed(2)}`}
+                    {item.listingType === 'Rent' 
+                      ? `$${item.rentalPrice}/${item.rentalPriceUnit}`
+                      : item.listingType === 'Both'
+                        ? `$${item.price ? item.price.toFixed(2) : 0} | $${item.rentalPrice}/${item.rentalPriceUnit}`
+                        : (item.price === 0 ? 'Free' : `$${item.price.toFixed(2)}`)}
                   </span>
                 </div>
               </div>
@@ -443,6 +492,16 @@ export default function Home() {
                 }}>
                   {item.description}
                 </p>
+
+                {/* Rental Details Sub-Info */}
+                {['Rent', 'Both'].includes(item.listingType) && (
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
+                    <div>💰 Deposit: <strong>${item.securityDeposit || 0}</strong></div>
+                    {item.availableFrom && item.availableUntil && (
+                      <div>📅 Available: <strong>{new Date(item.availableFrom).toLocaleDateString([], {day: 'numeric', month: 'short'})} – {new Date(item.availableUntil).toLocaleDateString([], {day: 'numeric', month: 'short'})}</strong></div>
+                    )}
+                  </div>
+                )}
 
                 {/* Seller Bio Details */}
                 <div style={{ 

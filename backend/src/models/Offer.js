@@ -39,6 +39,35 @@ const OfferSchema = new mongoose.Schema({
     ref: 'User',
     default: null,
   },
+  offerType: {
+    type: String,
+    enum: ['Sale', 'Rental'],
+    default: 'Sale',
+  },
+  rentalStartDate: {
+    type: Date,
+    default: null,
+  },
+  rentalEndDate: {
+    type: Date,
+    default: null,
+  },
+  rentalDuration: {
+    type: Number,
+    default: null,
+  },
+  rentalAmount: {
+    type: Number,
+    default: null,
+  },
+  securityDeposit: {
+    type: Number,
+    default: null,
+  },
+  totalAmount: {
+    type: Number,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

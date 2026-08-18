@@ -12,7 +12,8 @@ import {
   ShieldCheck,
   ChevronLeft,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  CreditCard
 } from 'lucide-react';
 
 export default function ListingDetails() {
@@ -37,6 +38,14 @@ export default function ListingDetails() {
   const [offerSuccess, setOfferSuccess] = useState('');
   const [offerError, setOfferError] = useState('');
 
+  // Rental specific states
+  const [listingMode, setListingMode] = useState('Sale'); // 'Sale' or 'Rental'
+  const [rentalStartDate, setRentalStartDate] = useState('');
+  const [rentalEndDate, setRentalEndDate] = useState('');
+
+  // Direct Purchase state
+  const [purchaseLoading, setPurchaseLoading] = useState(false);
+
   // Flag/Report states
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -53,6 +62,13 @@ export default function ListingDetails() {
 
       if (response.ok) {
         setListing(data.listing);
+        if (data.listing.listingType === 'Rent') {
+          setListingMode('Rental');
+          setOfferAmount(data.listing.rentalPrice.toString());
+        } else {
+          setListingMode('Sale');
+          setOfferAmount(data.listing.price ? data.listing.price.toString() : '');
+        }
         // Set wishlist state based on user data
         if (user && user.wishlist) {
           setIsWishlisted(user.wishlist.includes(data.listing._id));
@@ -72,7 +88,7 @@ export default function ListingDetails() {
     if (id) {
       fetchListingDetails();
     }
-  }, [id, user]);
+  }, [id]);
 
   const handleToggleWishlist = async () => {
     if (!user) {
@@ -125,6 +141,15 @@ export default function ListingDetails() {
     }
   };
 
+  const getRentalDuration = () => {
+    if (!rentalStartDate || !rentalEndDate) return 0;
+    const start = new Date(rentalStartDate);
+    const end = new Date(rentalEndDate);
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
   const handleMakeOffer = async (e) => {
     e.preventDefault();
     if (!offerAmount || parseFloat(offerAmount) < 0) {
@@ -132,30 +157,68 @@ export default function ListingDetails() {
       return;
     }
 
+    if (listingMode === 'Rental') {
+      if (!rentalStartDate || !rentalEndDate) {
+        setOfferError('Please select both start date and end date.');
+        return;
+      }
+      const duration = getRentalDuration();
+      if (listing.minimumRentalDuration && duration < listing.minimumRentalDuration) {
+        setOfferError(`Minimum rental duration is ${listing.minimumRentalDuration} days.`);
+        return;
+      }
+      if (listing.maximumRentalDuration && duration > listing.maximumRentalDuration) {
+        setOfferError(`Maximum rental duration is ${listing.maximumRentalDuration} days.`);
+        return;
+      }
+    }
+
     setOfferLoading(true);
     setOfferError('');
     setOfferSuccess('');
 
     try {
+      const body = {
+        listingId: listing._id,
+        amount: parseFloat(offerAmount),
+        message: offerMessage,
+        offerType: listingMode === 'Rental' ? 'Rental' : 'Sale',
+      };
+
+      if (listingMode === 'Rental') {
+        const duration = getRentalDuration();
+        const dailyPrice = parseFloat(offerAmount);
+        const rentalCost = duration * dailyPrice;
+        const deposit = listing.securityDeposit || 0;
+        
+        body.rentalStartDate = rentalStartDate;
+        body.rentalEndDate = rentalEndDate;
+        body.rentalDuration = duration;
+        body.rentalAmount = rentalCost;
+        body.securityDeposit = deposit;
+        body.totalAmount = rentalCost + deposit;
+      }
+
       const response = await fetch('http://127.0.0.1:5050/api/offers', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          listingId: listing._id,
-          amount: parseFloat(offerAmount),
-          message: offerMessage,
-        })
+        body: JSON.stringify(body)
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        setOfferSuccess('Your negotiation offer was sent to the seller successfully!');
+        setOfferSuccess(listingMode === 'Rental'
+          ? 'Your rental request has been sent successfully!'
+          : 'Your negotiation offer was sent to the seller successfully!'
+        );
         setOfferAmount('');
         setOfferMessage('');
+        setRentalStartDate('');
+        setRentalEndDate('');
         // Automatically redirect to chat after 2 seconds
         setTimeout(() => {
           navigate(`/chat?listingId=${listing._id}&buyerId=${user.id || user._id}`);
@@ -168,6 +231,36 @@ export default function ListingDetails() {
       setOfferError('Failed to connect to server.');
     } finally {
       setOfferLoading(false);
+    }
+  };
+
+  const handleDirectPurchase = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+    setPurchaseLoading(true);
+    setOfferError('');
+    setOfferSuccess('');
+    try {
+      const response = await fetch(`http://127.0.0.1:5050/api/payments/direct-checkout/${listing._id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      if (response.ok && data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+      } else {
+        setOfferError(data.message || 'Direct checkout initialization failed');
+      }
+    } catch (err) {
+      console.error('Direct purchase error:', err);
+      setOfferError('Failed to connect to payment server.');
+    } finally {
+      setPurchaseLoading(false);
     }
   };
 
@@ -376,8 +469,18 @@ export default function ListingDetails() {
               {listing.title}
             </h1>
             
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '24px', fontWeight: 800, color: 'var(--primary)', fontFamily: 'var(--font-title)' }}>
-              {listing.price === 0 ? 'Free' : `$${listing.price.toFixed(2)}`}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '24px', fontWeight: 800, color: 'var(--primary)', fontFamily: 'var(--font-title)' }}>
+              {listing.listingType === 'Rent' ? (
+                <div>🏠 ${listing.rentalPrice.toFixed(2)} / {listing.rentalPriceUnit}</div>
+              ) : listing.listingType === 'Both' ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', alignItems: 'center' }}>
+                  <span>🛒 ${listing.price ? listing.price.toFixed(2) : 0}</span>
+                  <span style={{ fontSize: '18px', fontWeight: 'normal', color: 'var(--text-muted)' }}>or</span>
+                  <span>🏠 ${listing.rentalPrice.toFixed(2)} / {listing.rentalPriceUnit}</span>
+                </div>
+              ) : (
+                <div>🛒 {listing.price === 0 ? 'Free' : `$${listing.price.toFixed(2)}`}</div>
+              )}
             </div>
           </div>
 
@@ -460,6 +563,138 @@ export default function ListingDetails() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Buy / Rent Toggle Tabs if Both is selected */}
+              {listing.listingType === 'Both' && (
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={() => {
+                      setListingMode('Sale');
+                      setOfferAmount(listing.price ? listing.price.toString() : '');
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-color)',
+                      background: listingMode === 'Sale' ? 'var(--primary-gradient)' : 'var(--bg-input)',
+                      color: listingMode === 'Sale' ? 'white' : 'var(--text-main)',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🛒 Buy Mode
+                  </button>
+                  <button
+                    onClick={() => {
+                      setListingMode('Rental');
+                      setOfferAmount(listing.rentalPrice.toString());
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-color)',
+                      background: listingMode === 'Rental' ? 'var(--primary-gradient)' : 'var(--bg-input)',
+                      color: listingMode === 'Rental' ? 'white' : 'var(--text-main)',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🏠 Rent Mode
+                  </button>
+                </div>
+              )}
+
+              {listingMode === 'Rental' && (
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', border: '1px solid var(--success-glow)' }}>
+                  <h4 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                    <Calendar size={16} /> Rental Booking Details
+                  </h4>
+                  
+                  {listing.availableFrom && listing.availableUntil && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      Available Dates: <strong>{new Date(listing.availableFrom).toLocaleDateString()}</strong> to <strong>{new Date(listing.availableUntil).toLocaleDateString()}</strong>
+                    </div>
+                  )}
+                  {listing.minimumRentalDuration && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      Min Duration: {listing.minimumRentalDuration} days | Max Duration: {listing.maximumRentalDuration || 'No limit'} days
+                    </div>
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Start Date</label>
+                      <input 
+                        type="date"
+                        className="input-field"
+                        value={rentalStartDate}
+                        onChange={(e) => setRentalStartDate(e.target.value)}
+                        min={listing.availableFrom ? new Date(listing.availableFrom).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]}
+                        max={listing.availableUntil ? new Date(listing.availableUntil).toISOString().split('T')[0] : undefined}
+                        style={{ height: '36px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>End Date</label>
+                      <input 
+                        type="date"
+                        className="input-field"
+                        value={rentalEndDate}
+                        onChange={(e) => setRentalEndDate(e.target.value)}
+                        min={rentalStartDate || (listing.availableFrom ? new Date(listing.availableFrom).toISOString().split('T')[0] : new Date().toISOString().split('T')[0])}
+                        max={listing.availableUntil ? new Date(listing.availableUntil).toISOString().split('T')[0] : undefined}
+                        style={{ height: '36px' }}
+                      />
+                    </div>
+                  </div>
+
+                  {getRentalDuration() > 0 && (
+                    <div style={{ padding: '12px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', justify: 'space-between' }}>
+                        <span>Duration:</span>
+                        <strong>{getRentalDuration()} days</strong>
+                      </div>
+                      <div style={{ display: 'flex', justify: 'space-between' }}>
+                        <span>Rental Rate:</span>
+                        <strong>${parseFloat(offerAmount || listing.rentalPrice).toFixed(2)} / {listing.rentalPriceUnit}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justify: 'space-between', color: 'var(--text-main)', borderTop: '1px solid var(--border-color)', paddingTop: '6px' }}>
+                        <span>Rental Charges:</span>
+                        <strong>${(getRentalDuration() * parseFloat(offerAmount || listing.rentalPrice)).toFixed(2)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justify: 'space-between', color: 'var(--text-muted)' }}>
+                        <span>Refundable Deposit:</span>
+                        <strong>${(listing.securityDeposit || 0).toFixed(2)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justify: 'space-between', color: 'var(--success)', borderTop: '1px solid var(--border-color)', paddingTop: '6px', fontSize: '15px', fontWeight: 'bold' }}>
+                        <span>Total Payable:</span>
+                        <span>${((getRentalDuration() * parseFloat(offerAmount || listing.rentalPrice)) + (listing.securityDeposit || 0)).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {listing.rentalTerms && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
+                      <strong>Terms:</strong> {listing.rentalTerms}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Direct Purchase (Buy Now) - Show only in Sale mode */}
+              {listingMode === 'Sale' && (
+                <button 
+                  onClick={handleDirectPurchase}
+                  className="btn btn-primary"
+                  style={{ padding: '12px', width: '100%', gap: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  disabled={purchaseLoading}
+                >
+                  <CreditCard size={18} />
+                  <span>{purchaseLoading ? 'Redirecting to Payment...' : 'Buy Now (Direct Checkout)'}</span>
+                </button>
+              )}
+
               {/* Message Seller */}
               <Link 
                 to={`/chat?listingId=${listing._id}&buyerId=${user ? (user.id || user._id) : ''}`}
@@ -467,14 +702,14 @@ export default function ListingDetails() {
                 style={{ padding: '12px', width: '100%' }}
               >
                 <MessageSquare size={18} />
-                <span>Chat with Seller</span>
+                <span>{listingMode === 'Rental' ? 'Chat with Owner' : 'Chat with Seller'}</span>
               </Link>
 
               {/* Price Negotiation (Make Offer) */}
               <div className="glass-panel" style={{ padding: '20px' }}>
-                <h3 style={{ fontSize: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)' }}>
+                <h3 style={{ fontSize: '16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-main)', marginTop: 0 }}>
                   <Sparkles size={16} style={{ color: 'var(--primary)' }} />
-                  Propose Price Offer
+                  {listingMode === 'Rental' ? 'Request Rental Booking' : 'Propose Price Offer'}
                 </h3>
 
                 {offerSuccess && (
@@ -498,14 +733,14 @@ export default function ListingDetails() {
                 <form onSubmit={handleMakeOffer} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                      Proposed Amount ($)
+                      {listingMode === 'Rental' ? 'Proposed Price per Day ($)' : 'Proposed Amount ($)'}
                     </label>
                     <div style={{ position: 'relative' }}>
                       <DollarSign size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                       <input
                         type="number"
                         className="input-field"
-                        placeholder={listing.price.toFixed(2)}
+                        placeholder={listingMode === 'Rental' ? listing.rentalPrice.toFixed(2) : (listing.price ? listing.price.toFixed(2) : '0')}
                         value={offerAmount}
                         onChange={(e) => setOfferAmount(e.target.value)}
                         style={{ paddingLeft: '32px', height: '40px' }}
@@ -518,12 +753,12 @@ export default function ListingDetails() {
 
                   <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                      Message to Seller (Optional)
+                      Message (Optional)
                     </label>
                     <input
                       type="text"
                       className="input-field"
-                      placeholder="e.g. Can meet in front of the Library tomorrow at 2 PM?"
+                      placeholder={listingMode === 'Rental' ? "e.g. I will keep it clean and return on time." : "e.g. Can meet in front of the Library tomorrow at 2 PM?"}
                       value={offerMessage}
                       onChange={(e) => setOfferMessage(e.target.value)}
                       style={{ height: '40px' }}
@@ -536,7 +771,7 @@ export default function ListingDetails() {
                     style={{ padding: '12px', width: '100%', fontSize: '14px' }}
                     disabled={offerLoading}
                   >
-                    {offerLoading ? 'Submitting offer...' : 'Send Negotiation Offer'}
+                    {offerLoading ? 'Submitting request...' : (listingMode === 'Rental' ? 'Send Rental Request' : 'Send Negotiation Offer')}
                   </button>
                 </form>
               </div>

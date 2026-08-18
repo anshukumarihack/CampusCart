@@ -15,7 +15,8 @@ import {
   Bell,
   Tag,
   Percent,
-  CalendarDays
+  CalendarDays,
+  LayoutDashboard
 } from 'lucide-react';
 
 export default function Navbar() {
@@ -139,6 +140,25 @@ export default function Navbar() {
 
           {user ? (
             <>
+              {/* Dashboard Link */}
+              <Link 
+                to="/" 
+                style={{ 
+                  color: location.pathname === '/' ? 'var(--primary)' : 'var(--text-secondary)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px',
+                  textDecoration: 'none',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  transition: 'var(--transition)' 
+                }}
+                title="Dashboard"
+              >
+                <LayoutDashboard size={18} />
+                <span className="nav-text">Dashboard</span>
+              </Link>
+
               {/* Sell Item Button - always visible */}
               <Link to="/sell" className="btn btn-primary" style={{ padding: '7px 14px', fontSize: '13px', gap: '6px' }}>
                 <PlusCircle size={16} />
@@ -286,13 +306,13 @@ export default function Navbar() {
               )}
 
               {/* User Dropdown / Profile */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid var(--border-color)', paddingLeft: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderLeft: '1px solid var(--nav-divider)', paddingLeft: '14px' }}>
                 <Link to="/profile" style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}>
                   <div style={{
                     width: '30px',
                     height: '30px',
                     borderRadius: '50%',
-                    background: 'var(--bg-input)',
+                    background: 'var(--nav-profile-bg)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -300,7 +320,7 @@ export default function Navbar() {
                     fontWeight: 'bold',
                     fontSize: '13px',
                     overflow: 'hidden',
-                    border: '1px solid var(--border-color)'
+                    border: '1px solid var(--nav-profile-border)'
                   }}>
                     {user.avatar ? (
                       <img src={user.avatar} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />

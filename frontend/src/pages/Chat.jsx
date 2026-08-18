@@ -652,14 +652,25 @@ export default function Chat() {
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: 'var(--primary)', fontWeight: 'bold', fontSize: '15px', marginBottom: '8px' }}>
                             <Tag size={16} />
-                            Negotiation Offer
+                            {offer.offerType === 'Rental' ? '🏠 Rental Request' : '🛒 Negotiation Offer'}
                           </div>
                           
-                          <p style={{ color: 'var(--text-main)', fontSize: '14px', marginBottom: '14px', fontWeight: 600 }}>
-                            {offer.status === 'Countered' 
-                              ? `Counter Offer Amount: $${offer.counterAmount.toFixed(2)}` 
-                              : `Offered Amount: $${offer.amount.toFixed(2)}`}
-                          </p>
+                          {offer.offerType === 'Rental' ? (
+                            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '4px', margin: '10px 0', border: '1px solid var(--border-color)', padding: '10px', borderRadius: '6px', backgroundColor: 'var(--bg-input)', textAlign: 'left' }}>
+                              <div>Proposed Rate: <strong>${offer.status === 'Countered' ? offer.counterAmount.toFixed(2) : offer.amount.toFixed(2)} / day</strong></div>
+                              <div>Dates: <strong>{new Date(offer.rentalStartDate).toLocaleDateString()} – {new Date(offer.rentalEndDate).toLocaleDateString()}</strong></div>
+                              <div>Duration: <strong>{offer.rentalDuration} days</strong></div>
+                              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '4px', marginTop: '4px', fontWeight: 600, color: 'var(--text-main)', fontSize: '12px' }}>
+                                Total Payable: ${(offer.rentalAmount + offer.securityDeposit).toFixed(2)} (Charges: ${offer.rentalAmount.toFixed(2)} + Deposit: ${offer.securityDeposit.toFixed(2)})
+                              </div>
+                            </div>
+                          ) : (
+                            <p style={{ color: 'var(--text-main)', fontSize: '14px', marginBottom: '14px', fontWeight: 600 }}>
+                              {offer.status === 'Countered' 
+                                ? `Counter Offer Amount: $${offer.counterAmount.toFixed(2)}` 
+                                : `Offered Amount: $${offer.amount.toFixed(2)}`}
+                            </p>
+                          )}
 
                           {/* Action Controls for Seller/Buyer if Pending or Countered by Other */}
                           {((offer.status === 'Pending' && !isBuyer) || (isCounteredByOther)) && (
@@ -692,7 +703,9 @@ export default function Chat() {
                           {offer.status === 'Accepted' && isBuyer && (
                             <div style={{ marginTop: '12px' }}>
                               <p style={{ fontSize: '12px', color: 'var(--success)', marginBottom: '10px', fontWeight: 600 }}>
-                                Seller has accepted the offer! Pay online to book the item.
+                                {offer.offerType === 'Rental' 
+                                  ? 'Seller has accepted the rental request! Pay online to book the item.' 
+                                  : 'Seller has accepted the offer! Pay online to book the item.'}
                               </p>
                               <button 
                                 onClick={() => handleCheckout(offer._id)}
@@ -707,7 +720,9 @@ export default function Chat() {
                           {/* Seller Checkout status if Offer is Accepted */}
                           {offer.status === 'Accepted' && !isBuyer && (
                             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                              Offer accepted. Waiting for the buyer to submit card payment.
+                              {offer.offerType === 'Rental'
+                                ? 'Rental request accepted. Waiting for the renter to submit card payment.'
+                                : 'Offer accepted. Waiting for the buyer to submit card payment.'}
                             </p>
                           )}
 
@@ -715,7 +730,7 @@ export default function Chat() {
                           {offer.status === 'Paid' && (
                             <div style={{ marginTop: '8px', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '13px', fontWeight: 600 }}>
                               <CheckCircle size={16} fill="var(--success-glow)" />
-                              <span>Paid Securely Online</span>
+                              <span>{offer.offerType === 'Rental' ? 'Paid & Booked Securely' : 'Paid Securely Online'}</span>
                             </div>
                           )}
 

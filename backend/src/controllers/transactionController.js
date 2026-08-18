@@ -260,3 +260,488 @@ exports.completeTransaction = async (req, res) => {
     res.status(500).json({ message: 'Failed to complete transaction' });
   }
 };
+
+// @desc    Confirm handover of rental item (mutual confirmation)
+// @route   PUT /api/transactions/:id/handover
+// @access  Private
+exports.handoverTransaction = async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id).populate('listing buyer seller');
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    const isBuyer = transaction.buyer._id.toString() === req.user.id;
+    const isSeller = transaction.seller._id.toString() === req.user.id;
+
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({ message: 'Not authorized to participate in this transaction' });
+    }
+
+    if (isBuyer) {
+      transaction.buyerConfirmed = true;
+    }
+    if (isSeller) {
+      transaction.sellerConfirmed = true;
+    }
+
+    const io = req.app.get('io');
+    const listing = transaction.listing;
+
+    if (transaction.buyerConfirmed && transaction.sellerConfirmed) {
+      transaction.rentalStatus = 'Active';
+      transaction.handoverDate = new Date();
+      // Reset confirmations for return flow usage
+      transaction.buyerConfirmed = false;
+      transaction.sellerConfirmed = false;
+
+      // Update Listing status
+      if (listing) {
+        listing.status = 'Completed';
+        await listing.save();
+      }
+
+      // Create notifications
+      const notifyBuyer = new Notification({
+        user: transaction.buyer._id,
+        type: 'transaction',
+        title: 'Rental Active!',
+        content: `Handover confirmed! Your rental for "${listing.title}" is now active.`,
+        link: `/transactions`,
+      });
+      await notifyBuyer.save();
+
+      const notifySeller = new Notification({
+        user: transaction.seller._id,
+        type: 'transaction',
+        title: 'Rental Active!',
+        content: `Handover confirmed! Rental for "${listing.title}" is now active.`,
+        link: `/transactions`,
+      });
+      await notifySeller.save();
+
+      if (io) {
+        io.to(`notify_${transaction.buyer._id}`).emit('notification_received', {
+          type: 'transaction',
+          title: 'Rental Active!',
+          content: `Rental of ${listing.title} is now active.`,
+          link: `/transactions`,
+        });
+        io.to(`notify_${transaction.seller._id}`).emit('notification_received', {
+          type: 'transaction',
+          title: 'Rental Active!',
+          content: `Rental of ${listing.title} is now active.`,
+          link: `/transactions`,
+        });
+      }
+
+      // Embed system message in Chat room log
+      const room = await Chat.findOne({ listing: listing._id, buyer: transaction.buyer._id });
+      if (room) {
+        room.messages.push({
+          sender: req.user.id,
+          text: `🤝 Handover confirmed! Rental is now Active. Enjoy your item!`,
+          timestamp: new Date(),
+        });
+        room.lastUpdated = new Date();
+        await room.save();
+        if (io) {
+          io.to(room._id.toString()).emit('message_received', {
+            roomId: room._id,
+            message: room.messages[room.messages.length - 1],
+          });
+        }
+      }
+    } else {
+      // Notify other user
+      const recipientId = isBuyer ? transaction.seller._id : transaction.buyer._id;
+      const senderName = req.user.name;
+
+      const notify = new Notification({
+        user: recipientId,
+        type: 'transaction',
+        title: 'Handover Confirmation Requested',
+        content: `${senderName} confirmed item handover for "${listing.title}". Please confirm to make the rental active.`,
+        link: `/transactions`,
+      });
+      await notify.save();
+
+      if (io) {
+        io.to(`notify_${recipientId}`).emit('notification_received', {
+          type: 'transaction',
+          title: 'Confirm Handover',
+          content: `${senderName} marked item handed over.`,
+          link: `/transactions`,
+        });
+      }
+    }
+
+    await transaction.save();
+    res.status(200).json({ success: true, transaction });
+  } catch (error) {
+    console.error('Handover transaction error:', error);
+    res.status(500).json({ message: 'Failed to confirm handover' });
+  }
+};
+
+// @desc    Renter schedules rental item return meetup
+// @route   PUT /api/transactions/:id/schedule-return
+// @access  Private
+exports.scheduleReturn = async (req, res) => {
+  const { location, time } = req.body;
+
+  if (!location || !time) {
+    return res.status(400).json({ message: 'Return location and time are required' });
+  }
+
+  try {
+    const transaction = await Transaction.findById(req.params.id).populate('listing buyer seller');
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    // Verify current user is the renter (buyer)
+    if (transaction.buyer._id.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Only the renter can schedule return meetup' });
+    }
+
+    transaction.meetupLocation = location;
+    transaction.meetupTime = new Date(time);
+    transaction.rentalStatus = 'Return Scheduled';
+
+    await transaction.save();
+
+    const io = req.app.get('io');
+    const listing = transaction.listing;
+
+    // Create system notification for seller
+    const notification = new Notification({
+      user: transaction.seller._id,
+      type: 'transaction',
+      title: 'Return Meetup Scheduled',
+      content: `${req.user.name} scheduled a return meetup for "${listing.title}" at ${location}.`,
+      link: `/transactions`,
+    });
+    await notification.save();
+
+    if (io) {
+      io.to(`notify_${transaction.seller._id.toString()}`).emit('notification_received', {
+        type: 'transaction',
+        title: 'Return Meetup Scheduled',
+        content: `Return scheduled for ${listing.title} at ${location}`,
+        link: `/transactions`,
+      });
+    }
+
+    // Embed message in Chat room
+    const room = await Chat.findOne({ listing: listing._id, buyer: transaction.buyer._id });
+    if (room) {
+      room.messages.push({
+        sender: req.user.id,
+        text: `📍 Return Scheduled! Location: ${location}, Time: ${new Date(time).toLocaleString()}`,
+        timestamp: new Date(),
+      });
+      room.lastUpdated = new Date();
+      await room.save();
+      if (io) {
+        io.to(room._id.toString()).emit('message_received', {
+          roomId: room._id,
+          message: room.messages[room.messages.length - 1],
+        });
+      }
+    }
+
+    res.status(200).json({ success: true, transaction });
+  } catch (error) {
+    console.error('Schedule return error:', error);
+    res.status(500).json({ message: 'Failed to schedule return meetup' });
+  }
+};
+
+// @desc    Confirm return of rental item (mutual confirmation)
+// @route   PUT /api/transactions/:id/confirm-return
+// @access  Private
+exports.confirmReturn = async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id).populate('listing buyer seller');
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    const isBuyer = transaction.buyer._id.toString() === req.user.id;
+    const isSeller = transaction.seller._id.toString() === req.user.id;
+
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({ message: 'Not authorized to participate in this transaction' });
+    }
+
+    if (isBuyer) {
+      transaction.buyerConfirmed = true;
+    }
+    if (isSeller) {
+      transaction.sellerConfirmed = true;
+    }
+
+    const io = req.app.get('io');
+    const listing = transaction.listing;
+
+    if (transaction.buyerConfirmed && transaction.sellerConfirmed) {
+      transaction.rentalStatus = 'Returned';
+      
+      // Auto refund security deposit if no dispute is opened yet
+      if (transaction.securityDepositStatus === 'Held') {
+        transaction.securityDepositStatus = 'Refunded';
+        transaction.rentalStatus = 'Completed';
+      }
+
+      transaction.buyerConfirmed = false;
+      transaction.sellerConfirmed = false;
+
+      // Update Listing status
+      if (listing) {
+        listing.status = 'Completed';
+        await listing.save();
+      }
+
+      // If offer exists, complete it
+      if (transaction.offer) {
+        const Offer = require('../models/Offer');
+        const offer = await Offer.findById(transaction.offer);
+        if (offer) {
+          offer.status = 'Completed';
+          await offer.save();
+        }
+      }
+
+      // Create notifications
+      const notifyBuyer = new Notification({
+        user: transaction.buyer._id,
+        type: 'transaction',
+        title: 'Rental Completed!',
+        content: `Rental for "${listing.title}" marked as returned. Security deposit refund triggered!`,
+        link: `/transactions`,
+      });
+      await notifyBuyer.save();
+
+      const notifySeller = new Notification({
+        user: transaction.seller._id,
+        type: 'transaction',
+        title: 'Rental Completed!',
+        content: `Rental for "${listing.title}" completed successfully.`,
+        link: `/transactions`,
+      });
+      await notifySeller.save();
+
+      if (io) {
+        io.to(`notify_${transaction.buyer._id}`).emit('notification_received', {
+          type: 'transaction',
+          title: 'Rental Completed!',
+          content: `Rental of ${listing.title} completed.`,
+          link: `/transactions`,
+        });
+        io.to(`notify_${transaction.seller._id}`).emit('notification_received', {
+          type: 'transaction',
+          title: 'Rental Completed!',
+          content: `Rental of ${listing.title} completed.`,
+          link: `/transactions`,
+        });
+      }
+
+      // Embed system message in Chat room log
+      const room = await Chat.findOne({ listing: listing._id, buyer: transaction.buyer._id });
+      if (room) {
+        room.messages.push({
+          sender: req.user.id,
+          text: `↩️ Return confirmed! Item returned to owner. Mock refund processed ($${transaction.securityDeposit.toFixed(2)} refunded). Rental Completed.`,
+          timestamp: new Date(),
+        });
+        room.lastUpdated = new Date();
+        await room.save();
+        if (io) {
+          io.to(room._id.toString()).emit('message_received', {
+            roomId: room._id,
+            message: room.messages[room.messages.length - 1],
+          });
+        }
+      }
+    } else {
+      // Notify other user
+      const recipientId = isBuyer ? transaction.seller._id : transaction.buyer._id;
+      const senderName = req.user.name;
+
+      const notify = new Notification({
+        user: recipientId,
+        type: 'transaction',
+        title: 'Return Confirmation Requested',
+        content: `${senderName} confirmed item return for "${listing.title}". Please confirm to finalize.`,
+        link: `/transactions`,
+      });
+      await notify.save();
+
+      if (io) {
+        io.to(`notify_${recipientId}`).emit('notification_received', {
+          type: 'transaction',
+          title: 'Confirm Return',
+          content: `${senderName} marked item returned.`,
+          link: `/transactions`,
+        });
+      }
+    }
+
+    await transaction.save();
+    res.status(200).json({ success: true, transaction });
+  } catch (error) {
+    console.error('Confirm return error:', error);
+    res.status(500).json({ message: 'Failed to confirm return' });
+  }
+};
+
+// @desc    Owner reports damage on returned rental item
+// @route   PUT /api/transactions/:id/report-damage
+// @access  Private
+exports.reportDamage = async (req, res) => {
+  const { damageDescription, damageAmount } = req.body;
+
+  if (!damageDescription || damageAmount === undefined || isNaN(parseFloat(damageAmount)) || parseFloat(damageAmount) < 0) {
+    return res.status(400).json({ message: 'Valid damage description and amount are required' });
+  }
+
+  try {
+    const transaction = await Transaction.findById(req.params.id).populate('listing buyer seller');
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    // Verify current user is the owner (seller)
+    if (transaction.seller._id.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Only the item owner can report damage' });
+    }
+
+    transaction.damageDescription = damageDescription;
+    transaction.damageAmount = parseFloat(damageAmount);
+    transaction.damageReportedAt = new Date();
+
+    const deposit = transaction.securityDeposit || 0;
+    if (parseFloat(damageAmount) >= deposit) {
+      transaction.securityDepositStatus = 'Deducted';
+    } else {
+      transaction.securityDepositStatus = 'Partially Deducted';
+    }
+
+    transaction.rentalStatus = 'Completed';
+    await transaction.save();
+
+    const io = req.app.get('io');
+    const listing = transaction.listing;
+
+    // Notify renter
+    const notifyBuyer = new Notification({
+      user: transaction.buyer._id,
+      type: 'transaction',
+      title: 'Damage Reported / Deposit Deducted',
+      content: `${req.user.name} reported damage on "${listing.title}". Deduction: $${parseFloat(damageAmount).toFixed(2)}.`,
+      link: `/transactions`,
+    });
+    await notifyBuyer.save();
+
+    if (io) {
+      io.to(`notify_${transaction.buyer._id.toString()}`).emit('notification_received', {
+        type: 'transaction',
+        title: 'Damage Reported',
+        content: `Damage reported on ${listing.title}. Deduction: $${parseFloat(damageAmount).toFixed(2)}`,
+        link: `/transactions`,
+      });
+    }
+
+    // Chat Room message
+    const room = await Chat.findOne({ listing: listing._id, buyer: transaction.buyer._id });
+    if (room) {
+      room.messages.push({
+        sender: req.user.id,
+        text: `⚠️ Damage Reported by Owner! Description: "${damageDescription}", Claimed Amount: $${parseFloat(damageAmount).toFixed(2)}. Security Deposit status: ${transaction.securityDepositStatus}.`,
+        timestamp: new Date(),
+      });
+      room.lastUpdated = new Date();
+      await room.save();
+      if (io) {
+        io.to(room._id.toString()).emit('message_received', {
+          roomId: room._id,
+          message: room.messages[room.messages.length - 1],
+        });
+      }
+    }
+
+    res.status(200).json({ success: true, transaction });
+  } catch (error) {
+    console.error('Report damage error:', error);
+    res.status(500).json({ message: 'Failed to record damage report' });
+  }
+};
+
+// @desc    Admin or Seller overrides to release remaining security deposit
+// @route   PUT /api/transactions/:id/refund-deposit
+// @access  Private
+exports.refundDeposit = async (req, res) => {
+  try {
+    const transaction = await Transaction.findById(req.params.id).populate('listing buyer seller');
+    if (!transaction) {
+      return res.status(404).json({ message: 'Transaction not found' });
+    }
+
+    const isSeller = transaction.seller._id.toString() === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isSeller && !isAdmin) {
+      return res.status(403).json({ message: 'Not authorized to release deposit refund' });
+    }
+
+    transaction.securityDepositStatus = 'Refunded';
+    transaction.rentalStatus = 'Completed';
+    await transaction.save();
+
+    const io = req.app.get('io');
+    const listing = transaction.listing;
+
+    // Notify renter
+    const notifyBuyer = new Notification({
+      user: transaction.buyer._id,
+      type: 'transaction',
+      title: 'Security Deposit Refunded',
+      content: `Your security deposit of $${transaction.securityDeposit.toFixed(2)} for "${listing.title}" has been released/refunded.`,
+      link: `/transactions`,
+    });
+    await notifyBuyer.save();
+
+    if (io) {
+      io.to(`notify_${transaction.buyer._id.toString()}`).emit('notification_received', {
+        type: 'transaction',
+        title: 'Deposit Refunded',
+        content: `Security deposit for ${listing.title} refunded.`,
+        link: `/transactions`,
+      });
+    }
+
+    // Chat Room message
+    const room = await Chat.findOne({ listing: listing._id, buyer: transaction.buyer._id });
+    if (room) {
+      room.messages.push({
+        sender: req.user.id,
+        text: `💸 Security Deposit Refunded! Amount: $${transaction.securityDeposit.toFixed(2)} has been released back to renter.`,
+        timestamp: new Date(),
+      });
+      room.lastUpdated = new Date();
+      await room.save();
+      if (io) {
+        io.to(room._id.toString()).emit('message_received', {
+          roomId: room._id,
+          message: room.messages[room.messages.length - 1],
+        });
+      }
+    }
+
+    res.status(200).json({ success: true, transaction });
+  } catch (error) {
+    console.error('Refund deposit error:', error);
+    res.status(500).json({ message: 'Failed to process deposit refund' });
+  }
+};
