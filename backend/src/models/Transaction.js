@@ -42,6 +42,57 @@ const TransactionSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  transactionType: {
+    type: String,
+    enum: ['Sale', 'Rental'],
+    default: 'Sale',
+  },
+  rentalStartDate: {
+    type: Date,
+    default: null,
+  },
+  rentalEndDate: {
+    type: Date,
+    default: null,
+  },
+  rentalDuration: {
+    type: Number,
+    default: null,
+  },
+  rentalAmount: {
+    type: Number,
+    default: null,
+  },
+  securityDeposit: {
+    type: Number,
+    default: null,
+  },
+  securityDepositStatus: {
+    type: String,
+    enum: ['Pending', 'Held', 'Refunded', 'Partially Deducted', 'Deducted'],
+    default: 'Pending',
+  },
+  rentalStatus: {
+    type: String,
+    enum: ['Pending', 'Paid', 'Pickup Scheduled', 'Active', 'Return Scheduled', 'Returned', 'Completed', 'Cancelled'],
+    default: 'Pending',
+  },
+  damageDescription: {
+    type: String,
+    default: '',
+  },
+  damageAmount: {
+    type: Number,
+    default: 0,
+  },
+  damageReportedAt: {
+    type: Date,
+    default: null,
+  },
+  handoverDate: {
+    type: Date,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

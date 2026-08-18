@@ -4,11 +4,11 @@ import { useAuth } from '../context/AuthContext';
 import { Upload, X, DollarSign, Tag, Info } from 'lucide-react';
 
 const CATEGORIES = [
-  'Textbooks', 
+  'Stationery', 
   'Electronics', 
   'Calculators', 
   'Furniture', 
-  'Bicycles', 
+  'Vehicles', 
   'Clothing', 
   'Hostel Essentials', 
   'Other'
@@ -32,6 +32,17 @@ export default function CreateListing() {
   const [condition, setCondition] = useState('');
   const [imageFiles, setImageFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
+
+  // Rental specific states
+  const [listingType, setListingType] = useState('Sale');
+  const [rentalPrice, setRentalPrice] = useState('');
+  const [rentalPriceUnit, setRentalPriceUnit] = useState('day');
+  const [securityDeposit, setSecurityDeposit] = useState('0');
+  const [minimumRentalDuration, setMinimumRentalDuration] = useState('');
+  const [maximumRentalDuration, setMaximumRentalDuration] = useState('');
+  const [availableFrom, setAvailableFrom] = useState('');
+  const [availableUntil, setAvailableUntil] = useState('');
+  const [rentalTerms, setRentalTerms] = useState('');
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -67,9 +78,29 @@ export default function CreateListing() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title || !description || !price || !category || !condition) {
-      setError('Please fill in all fields.');
+    if (!title || !description || !category || !condition) {
+      setError('Please fill in all basic fields.');
       return;
+    }
+
+    if (listingType !== 'Rent' && !price) {
+      setError('Please specify a sale price.');
+      return;
+    }
+
+    if (['Rent', 'Both'].includes(listingType)) {
+      if (!rentalPrice || !rentalPriceUnit) {
+        setError('Please specify rental price and unit.');
+        return;
+      }
+      if (minimumRentalDuration && maximumRentalDuration && parseInt(minimumRentalDuration) > parseInt(maximumRentalDuration)) {
+        setError('Minimum duration cannot exceed maximum duration.');
+        return;
+      }
+      if (availableFrom && availableUntil && new Date(availableFrom) >= new Date(availableUntil)) {
+        setError('Available From date must be before Available Until date.');
+        return;
+      }
     }
 
     setLoading(true);
@@ -78,9 +109,24 @@ export default function CreateListing() {
     const formData = new FormData();
     formData.append('title', title);
     formData.append('description', description);
-    formData.append('price', price);
     formData.append('category', category);
     formData.append('condition', condition);
+    formData.append('listingType', listingType);
+
+    if (listingType !== 'Rent') {
+      formData.append('price', price);
+    }
+
+    if (['Rent', 'Both'].includes(listingType)) {
+      formData.append('rentalPrice', rentalPrice);
+      formData.append('rentalPriceUnit', rentalPriceUnit);
+      formData.append('securityDeposit', securityDeposit || '0');
+      if (minimumRentalDuration) formData.append('minimumRentalDuration', minimumRentalDuration);
+      if (maximumRentalDuration) formData.append('maximumRentalDuration', maximumRentalDuration);
+      if (availableFrom) formData.append('availableFrom', availableFrom);
+      if (availableUntil) formData.append('availableUntil', availableUntil);
+      formData.append('rentalTerms', rentalTerms || '');
+    }
     
     imageFiles.forEach(file => {
       formData.append('images', file);
@@ -115,7 +161,7 @@ export default function CreateListing() {
           Create New Listing
         </h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '24px' }}>
-          Sell, swap, or donate textbooks, calculators, furniture, or hostel essentials to other students on campus.
+          Sell, swap, or donate stationery, calculators, furniture, or hostel essentials to other students on campus.
         </p>
 
         {error && (
@@ -133,6 +179,35 @@ export default function CreateListing() {
         )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* Listing Type Select */}
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+              Listing Mode
+            </label>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              {['Sale', 'Rent', 'Both'].map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setListingType(mode)}
+                  style={{
+                    flex: 1,
+                    padding: '10px 16px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--border-color)',
+                    background: listingType === mode ? 'var(--primary)' : 'var(--bg-input)',
+                    color: listingType === mode ? 'var(--white)' : 'var(--text-main)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {mode === 'Sale' ? '🛒 Sell Item' : mode === 'Rent' ? '🏠 Rent Item' : '🔄 Sell & Rent'}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Title */}
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -148,7 +223,7 @@ export default function CreateListing() {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: listingType === 'Rent' ? '1fr' : '1fr 1fr', gap: '20px' }}>
             {/* Category */}
             <div>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -169,26 +244,162 @@ export default function CreateListing() {
             </div>
 
             {/* Price */}
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
-                Price ($)
-              </label>
-              <div style={{ position: 'relative' }}>
-                <DollarSign size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input
-                  type="number"
+            {listingType !== 'Rent' && (
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  Sale Price ($)
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <DollarSign size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="number"
+                    className="input-field"
+                    placeholder="0.00 (Enter 0 for free/donation)"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    style={{ paddingLeft: '36px' }}
+                    min="0"
+                    step="0.01"
+                    required
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Rental Fields */}
+          {['Rent', 'Both'].includes(listingType) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '20px', border: '1px dashed var(--border-color)', borderRadius: 'var(--radius-md)', backgroundColor: 'rgba(255, 255, 255, 0.02)' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, borderBottom: '1px solid var(--border-color)', paddingBottom: '8px', color: 'var(--text-main)' }}>
+                Rental Settings
+              </h3>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    Rental Price ($)
+                  </label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ position: 'relative', flex: 1 }}>
+                      <DollarSign size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                      <input
+                        type="number"
+                        className="input-field"
+                        placeholder="Price"
+                        value={rentalPrice}
+                        onChange={(e) => setRentalPrice(e.target.value)}
+                        style={{ paddingLeft: '32px' }}
+                        min="0"
+                        step="0.01"
+                        required
+                      />
+                    </div>
+                    <select
+                      className="input-field"
+                      value={rentalPriceUnit}
+                      onChange={(e) => setRentalPriceUnit(e.target.value)}
+                      style={{ width: '110px', cursor: 'pointer' }}
+                      required
+                    >
+                      <option value="hour">per Hour</option>
+                      <option value="day">per Day</option>
+                      <option value="week">per Week</option>
+                      <option value="month">per Month</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    Refundable Security Deposit ($)
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <DollarSign size={18} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    <input
+                      type="number"
+                      className="input-field"
+                      placeholder="0.00"
+                      value={securityDeposit}
+                      onChange={(e) => setSecurityDeposit(e.target.value)}
+                      style={{ paddingLeft: '36px' }}
+                      min="0"
+                      step="0.01"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    Minimum Rental Duration (Days)
+                  </label>
+                  <input
+                    type="number"
+                    className="input-field"
+                    placeholder="e.g. 1"
+                    value={minimumRentalDuration}
+                    onChange={(e) => setMinimumRentalDuration(e.target.value)}
+                    min="1"
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    Maximum Rental Duration (Days)
+                  </label>
+                  <input
+                    type="number"
+                    className="input-field"
+                    placeholder="e.g. 30"
+                    value={maximumRentalDuration}
+                    onChange={(e) => setMaximumRentalDuration(e.target.value)}
+                    min="1"
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    Available From
+                  </label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={availableFrom}
+                    onChange={(e) => setAvailableFrom(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    Available Until
+                  </label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={availableUntil}
+                    onChange={(e) => setAvailableUntil(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  Rental Terms / Rules
+                </label>
+                <textarea
                   className="input-field"
-                  placeholder="0.00 (Enter 0 for free/donation)"
-                  value={price}
-                  onChange={(e) => setPrice(e.target.value)}
-                  style={{ paddingLeft: '36px' }}
-                  min="0"
-                  step="0.01"
-                  required
+                  placeholder="e.g. Return in clean condition. Renter is responsible for any repair costs..."
+                  value={rentalTerms}
+                  onChange={(e) => setRentalTerms(e.target.value)}
+                  rows={2}
+                  style={{ resize: 'vertical' }}
                 />
               </div>
             </div>
-          </div>
+          )}
 
           {/* Condition Selection */}
           <div>

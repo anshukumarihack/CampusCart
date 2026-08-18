@@ -146,3 +146,22 @@ exports.getUsersList = async (req, res) => {
   }
 };
 
+// @desc    Get all rental transactions for administration overview
+// @route   GET /api/admin/rentals
+// @access  Private/Admin
+exports.getAdminRentals = async (req, res) => {
+  try {
+    const Transaction = require('../models/Transaction');
+    const rentals = await Transaction.find({ transactionType: 'Rental' })
+      .populate('listing', 'title price rentalPrice rentalPriceUnit status')
+      .populate('buyer', 'name email')
+      .populate('seller', 'name email')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ success: true, count: rentals.length, rentals });
+  } catch (error) {
+    console.error('Get admin rentals error:', error);
+    res.status(500).json({ message: 'Failed to retrieve rental transactions' });
+  }
+};
+

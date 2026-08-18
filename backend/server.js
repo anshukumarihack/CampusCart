@@ -39,11 +39,12 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Express Middleware
+app.use(cors());
+
 // Mount Payment Routes (Mounted before express.json to preserve raw webhook streams)
 app.use('/api/payments', require('./src/routes/paymentRoutes'));
 
-// Express Middleware
-app.use(cors());
 app.use(express.json());
 // Serve local image uploads statically
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

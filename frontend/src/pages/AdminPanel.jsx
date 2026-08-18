@@ -14,7 +14,8 @@ import {
   Tag,
   BarChart3,
   Search,
-  Check
+  Check,
+  Calendar
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -22,7 +23,7 @@ export default function AdminPanel() {
   const { token } = useAuth();
   const { addToast } = useToast();
   
-  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'users' | 'listings' | 'reports'
+  const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard' | 'users' | 'listings' | 'reports' | 'rentals'
   
   // Dashboard Stats
   const [stats, setStats] = useState({
@@ -37,12 +38,14 @@ export default function AdminPanel() {
   const [reports, setReports] = useState([]);
   const [usersList, setUsersList] = useState([]);
   const [listingsList, setListingsList] = useState([]);
+  const [rentals, setRentals] = useState([]);
 
   // Loadings and searches
   const [loadingStats, setLoadingStats] = useState(true);
   const [loadingReports, setLoadingReports] = useState(true);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingListings, setLoadingListings] = useState(false);
+  const [loadingRentals, setLoadingRentals] = useState(false);
 
   const [userSearch, setUserSearch] = useState('');
   const [listingSearch, setListingSearch] = useState('');
@@ -117,12 +120,53 @@ export default function AdminPanel() {
     }
   };
 
+  // Fetch rentals list
+  const fetchRentals = async () => {
+    setLoadingRentals(true);
+    try {
+      const response = await fetch('http://127.0.0.1:5050/api/admin/rentals', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setRentals(data.rentals);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingRentals(false);
+    }
+  };
+
+  const handleRefundOverride = async (txId) => {
+    if (!window.confirm('Are you sure you want to manually refund the security deposit? This will resolve any damage claims and refund the renter.')) {
+      return;
+    }
+    try {
+      const response = await fetch(`http://127.0.0.1:5050/api/transactions/${txId}/refund-deposit`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        addToast('Security deposit refund released successfully.', 'success');
+        fetchRentals();
+      } else {
+        const data = await response.json();
+        addToast(data.message || 'Failed to override refund', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      addToast('Connection failed.', 'error');
+    }
+  };
+
   useEffect(() => {
     if (token) {
       fetchStats();
       fetchReports();
       fetchUsers();
       fetchListings();
+      fetchRentals();
     }
   }, [token]);
 
@@ -244,6 +288,7 @@ export default function AdminPanel() {
           { id: 'users', label: 'Manage Users', icon: <UsersIcon size={16} /> },
           { id: 'listings', label: 'Manage Listings', icon: <Tag size={16} /> },
           { id: 'reports', label: 'Moderation Reports', icon: <Flag size={16} /> },
+          { id: 'rentals', label: 'Manage Rentals', icon: <Calendar size={16} /> },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -594,6 +639,107 @@ export default function AdminPanel() {
                           </button>
                         )}
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+      {/* Tab: Rentals Moderation */}
+      {activeTab === 'rentals' && (
+        <div className="glass-panel" style={{ padding: '20px', overflowX: 'auto' }}>
+          <h3 style={{ fontSize: '18px', marginBottom: '16px', color: 'var(--text-main)', marginTop: 0 }}>🛡️ Active & Historical Rental Transactions</h3>
+          {loadingRentals ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading rental logs...</div>
+          ) : rentals.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No rentals logged on the platform yet.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '950px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '12px' }}>Rented Item</th>
+                  <th style={{ padding: '12px' }}>Owner</th>
+                  <th style={{ padding: '12px' }}>Renter</th>
+                  <th style={{ padding: '12px' }}>Rental Duration</th>
+                  <th style={{ padding: '12px' }}>Value & Deposit</th>
+                  <th style={{ padding: '12px' }}>Rental Status</th>
+                  <th style={{ padding: '12px' }}>Deposit Status</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>Actions Override</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rentals.map((rental) => (
+                  <tr key={rental._id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    <td style={{ padding: '16px 12px' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{rental.listing?.title}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ID: {rental._id}</div>
+                    </td>
+                    <td style={{ padding: '16px 12px' }}>
+                      <div>{rental.seller?.name}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{rental.seller?.email}</div>
+                    </td>
+                    <td style={{ padding: '16px 12px' }}>
+                      <div>{rental.buyer?.name}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{rental.buyer?.email}</div>
+                    </td>
+                    <td style={{ padding: '16px 12px' }}>
+                      {rental.rentalStartDate && rental.rentalEndDate ? (
+                        <div>
+                          <div>{new Date(rental.rentalStartDate).toLocaleDateString()} to {new Date(rental.rentalEndDate).toLocaleDateString()}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{rental.rentalDuration} days</div>
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Pending Dates</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '16px 12px' }}>
+                      <div>Rent: <strong>${(rental.rentalAmount || 0).toFixed(2)}</strong></div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Deposit: ${(rental.securityDeposit || 0).toFixed(2)}</div>
+                    </td>
+                    <td style={{ padding: '16px 12px' }}>
+                      <span style={{
+                        color: rental.rentalStatus === 'Active' ? 'var(--success)' : rental.rentalStatus === 'Completed' ? 'var(--text-muted)' : 'var(--warning)',
+                        background: rental.rentalStatus === 'Active' ? 'var(--success-glow)' : 'transparent',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontWeight: 600,
+                        fontSize: '11px'
+                      }}>
+                        {rental.rentalStatus}
+                      </span>
+                    </td>
+                    <td style={{ padding: '16px 12px' }}>
+                      <span style={{
+                        color: rental.securityDepositStatus === 'Refunded' ? 'var(--success)' : rental.securityDepositStatus === 'Disputed' ? 'var(--danger)' : 'var(--text-secondary)',
+                        fontWeight: 600,
+                        fontSize: '11px'
+                      }}>
+                        {rental.securityDepositStatus}
+                      </span>
+                      {rental.securityDepositStatus === 'Disputed' && (
+                        <div style={{ fontSize: '10px', color: 'var(--danger)' }}>
+                          Claimed: ${rental.damageAmount?.toFixed(2)}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ padding: '16px 12px', textAlign: 'right' }}>
+                      {rental.securityDepositStatus === 'Disputed' && (
+                        <button
+                          onClick={() => handleRefundOverride(rental._id)}
+                          className="btn"
+                          style={{
+                            padding: '6px 12px',
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            border: '1px solid rgba(16, 185, 129, 0.2)',
+                            color: 'var(--success)',
+                            fontSize: '11px'
+                          }}
+                        >
+                          Override Refund
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

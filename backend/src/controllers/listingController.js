@@ -4,10 +4,25 @@ const Listing = require('../models/Listing');
 // @route   POST /api/listings
 // @access  Private
 exports.createListing = async (req, res) => {
-  const { title, description, price, category, condition } = req.body;
+  const { 
+    title, 
+    description, 
+    price, 
+    category, 
+    condition,
+    listingType,
+    rentalPrice,
+    rentalPriceUnit,
+    securityDeposit,
+    minimumRentalDuration,
+    maximumRentalDuration,
+    availableFrom,
+    availableUntil,
+    rentalTerms
+  } = req.body;
 
-  if (!title || !description || !price || !category || !condition) {
-    return res.status(400).json({ message: 'All listing fields are required' });
+  if (!title || !description || !category || !condition) {
+    return res.status(400).json({ message: 'Title, description, category, and condition are required' });
   }
 
   try {
@@ -23,12 +38,21 @@ exports.createListing = async (req, res) => {
     const listing = new Listing({
       title,
       description,
-      price: parseFloat(price),
+      price: price ? parseFloat(price) : undefined,
       category,
       condition,
       images,
       owner: req.user.id,
       status: 'Listed',
+      listingType: listingType || 'Sale',
+      rentalPrice: rentalPrice ? parseFloat(rentalPrice) : null,
+      rentalPriceUnit: rentalPriceUnit || null,
+      securityDeposit: securityDeposit ? parseFloat(securityDeposit) : 0,
+      minimumRentalDuration: minimumRentalDuration ? parseInt(minimumRentalDuration) : null,
+      maximumRentalDuration: maximumRentalDuration ? parseInt(maximumRentalDuration) : null,
+      availableFrom: availableFrom ? new Date(availableFrom) : null,
+      availableUntil: availableUntil ? new Date(availableUntil) : null,
+      rentalTerms: rentalTerms || '',
     });
 
     const savedListing = await listing.save();
@@ -43,7 +67,7 @@ exports.createListing = async (req, res) => {
 // @route   GET /api/listings
 // @access  Public
 exports.getListings = async (req, res) => {
-  const { search, category, condition, minPrice, maxPrice, status, owner, sortBy } = req.query;
+  const { search, category, condition, minPrice, maxPrice, status, owner, sortBy, listingType } = req.query;
 
   // Build filter object
   const query = {};
@@ -62,6 +86,12 @@ exports.getListings = async (req, res) => {
     query.owner = owner;
   }
 
+  if (listingType === 'Sale') {
+    query.listingType = { $in: ['Sale', 'Both'] };
+  } else if (listingType === 'Rent') {
+    query.listingType = { $in: ['Rent', 'Both'] };
+  }
+
   if (search) {
     query.$or = [
       { title: { $regex: search, $options: 'i' } },
@@ -78,9 +108,15 @@ exports.getListings = async (req, res) => {
   }
 
   if (minPrice || maxPrice) {
-    query.price = {};
-    if (minPrice) query.price.$gte = parseFloat(minPrice);
-    if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+    if (listingType === 'Rent') {
+      query.rentalPrice = {};
+      if (minPrice) query.rentalPrice.$gte = parseFloat(minPrice);
+      if (maxPrice) query.rentalPrice.$lte = parseFloat(maxPrice);
+    } else {
+      query.price = {};
+      if (minPrice) query.price.$gte = parseFloat(minPrice);
+      if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+    }
   }
 
   try {
@@ -126,7 +162,23 @@ exports.getListingById = async (req, res) => {
 // @route   PUT /api/listings/:id
 // @access  Private
 exports.updateListing = async (req, res) => {
-  const { title, description, price, category, condition, status } = req.body;
+  const { 
+    title, 
+    description, 
+    price, 
+    category, 
+    condition, 
+    status,
+    listingType,
+    rentalPrice,
+    rentalPriceUnit,
+    securityDeposit,
+    minimumRentalDuration,
+    maximumRentalDuration,
+    availableFrom,
+    availableUntil,
+    rentalTerms
+  } = req.body;
 
   try {
     let listing = await Listing.findById(req.params.id);
@@ -142,10 +194,19 @@ exports.updateListing = async (req, res) => {
 
     if (title) listing.title = title;
     if (description) listing.description = description;
-    if (price) listing.price = parseFloat(price);
+    if (price !== undefined) listing.price = price ? parseFloat(price) : undefined;
     if (category) listing.category = category;
     if (condition) listing.condition = condition;
     if (status) listing.status = status;
+    if (listingType) listing.listingType = listingType;
+    if (rentalPrice !== undefined) listing.rentalPrice = rentalPrice ? parseFloat(rentalPrice) : null;
+    if (rentalPriceUnit !== undefined) listing.rentalPriceUnit = rentalPriceUnit || null;
+    if (securityDeposit !== undefined) listing.securityDeposit = securityDeposit ? parseFloat(securityDeposit) : 0;
+    if (minimumRentalDuration !== undefined) listing.minimumRentalDuration = minimumRentalDuration ? parseInt(minimumRentalDuration) : null;
+    if (maximumRentalDuration !== undefined) listing.maximumRentalDuration = maximumRentalDuration ? parseInt(maximumRentalDuration) : null;
+    if (availableFrom !== undefined) listing.availableFrom = availableFrom ? new Date(availableFrom) : null;
+    if (availableUntil !== undefined) listing.availableUntil = availableUntil ? new Date(availableUntil) : null;
+    if (rentalTerms !== undefined) listing.rentalTerms = rentalTerms || '';
 
     const updatedListing = await listing.save();
     res.status(200).json({ success: true, listing: updatedListing });
@@ -193,6 +254,56 @@ exports.getMyListings = async (req, res) => {
   } catch (error) {
     console.error('Get my listings error:', error);
     res.status(500).json({ message: 'Failed to retrieve your listings' });
+  }
+};
+
+// @desc    Check rental availability for specified dates
+// @route   POST /api/listings/:id/check-availability
+// @access  Private
+exports.checkListingAvailability = async (req, res) => {
+  const { startDate, endDate } = req.body;
+  const listingId = req.params.id;
+
+  if (!startDate || !endDate) {
+    return res.status(400).json({ message: 'Start date and end date are required' });
+  }
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    return res.status(400).json({ message: 'Invalid start or end date format' });
+  }
+
+  if (start < new Date().setHours(0, 0, 0, 0)) {
+    return res.status(400).json({ message: 'Start date cannot be in the past' });
+  }
+
+  if (start >= end) {
+    return res.status(400).json({ message: 'Start date must be before end date' });
+  }
+
+  try {
+    const Transaction = require('../models/Transaction');
+    const overlappingTransaction = await Transaction.findOne({
+      listing: listingId,
+      transactionType: 'Rental',
+      rentalStatus: { $nin: ['Cancelled', 'Pending'] },
+      rentalStartDate: { $lte: end },
+      rentalEndDate: { $gte: start }
+    });
+
+    if (overlappingTransaction) {
+      return res.status(200).json({
+        available: false,
+        message: 'The item is already booked for these dates.'
+      });
+    }
+
+    res.status(200).json({ available: true, message: 'Item is available for these dates.' });
+  } catch (error) {
+    console.error('Check availability error:', error);
+    res.status(500).json({ message: 'Failed to verify availability' });
   }
 };
 

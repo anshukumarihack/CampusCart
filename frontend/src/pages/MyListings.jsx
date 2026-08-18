@@ -210,7 +210,7 @@ export default function MyListings() {
           <div>
             <h3 style={{ fontSize: '20px', color: 'var(--text-main)', marginBottom: '8px' }}>No Active Listings</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.5' }}>
-              You haven't listed any items for sale yet. Turn your unused textbooks, electronics, or gear into cash!
+              You haven't listed any items for sale yet. Turn your unused stationery, electronics, or gear into cash!
             </p>
           </div>
           <Link to="/sell" className="btn btn-primary" style={{ padding: '12px 24px' }}>
@@ -422,7 +422,7 @@ export default function MyListings() {
                   style={{ background: 'var(--bg-card)', color: 'var(--text-main)' }}
                 >
                   <option value="">Select Category</option>
-                  <option value="Textbooks">Textbooks</option>
+                  <option value="Stationery">Stationery</option>
                   <option value="Electronics">Electronics</option>
                   <option value="Calculators">Calculators</option>
                   <option value="Furniture">Furniture</option>
